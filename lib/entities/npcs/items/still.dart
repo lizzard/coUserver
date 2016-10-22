@@ -22,6 +22,8 @@ class Still extends EntityItem {
 
 	static final String HOOCH = 'hooch';
 
+	static final String SKILL = 'distilling';
+
 	static final String
 		CORN = 'corn',
 		GRAIN = 'grain',
@@ -55,6 +57,7 @@ class Still extends EntityItem {
 
 	int pending = 0;
 	int processed = 0;
+	Map<String, int> itemsAdded = {};
 
 	bool collecting = false;
 
@@ -102,20 +105,30 @@ class Still extends EntityItem {
 	@override
 	Map<String, String> getPersistMetadata() => super.getPersistMetadata()
 		..['pending'] = pending.toString()
-		..['processed'] = processed.toString();
+		..['processed'] = processed.toString()
+		..['itemsAdded'] = JSON.encode(itemsAdded);
 
 	@override
 	void restoreState(Map<String, String> metadata) {
 		super.restoreState(metadata);
 		pending = int.parse((metadata['pending'] ?? 0).toString());
 		processed = int.parse((metadata['processed'] ?? 0).toString());
+		if (metadata.containsKey('itemsAdded')) {
+			itemsAdded = JSON.decode(metadata['itemsAdded']);
+		}
 	}
 
 	@override
 	Future<bool> pickUp({WebSocket userSocket, String email}) async {
-		if (pending > 0) {
+		if (pending >= INPUT_PER_HOOCH) {
 			toast('Wait for me to finish!', userSocket);
 			return false;
+		} else if (pending > 0) {
+			await Future.forEach(itemsAdded.keys, (String itemType) async {
+				await InventoryV2.addItemToUser(email, itemType, itemsAdded[itemType]);
+			});
+			itemsAdded = {};
+			return await super.pickUp(userSocket: userSocket, email: email);
 		} else {
 			return await super.pickUp(userSocket: userSocket, email: email);
 		}
@@ -125,6 +138,13 @@ class Still extends EntityItem {
 		try {
 			int taken = await InventoryV2.takeAnyItemsFromUser(email, itemType, count);
 			pending += taken;
+			if (itemsAdded.containsKey(itemType)) {
+				itemsAdded[itemType] += taken;
+			} else {
+				itemsAdded[itemType] = taken;
+			}
+
+			SkillManager.learn(SKILL, email, (count / 3).ceil());
 			return true;
 		} catch (e) {
 			Log.warning('Could not add <count=$count> <itemType=$itemType> from <email=$email> to still <entity=$id>', e);
@@ -139,9 +159,14 @@ class Still extends EntityItem {
 
 	Future<bool> collect({WebSocket userSocket, String email}) async {
 		if (processed == 0) {
-			toast("There's nothing to collect!", userSocket);
+			if (pending == 0) {
+				toast("There's nothing to collect!", userSocket);
+			} else {
+				toast("There's not enough in here to make any hooch worth collecting!", userSocket);
+			}
 			return false;
 		} else {
+			int collected = 0;
 			setState('collect');
 			collecting = true;
 
@@ -156,11 +181,15 @@ class Still extends EntityItem {
 
 				// Keep going as long as there is more to collect
 				processed--;
+				collected++;
 				return (processed > 0);
 			});
 
 			// Done
 			collecting = false;
+			itemsAdded = {};
+
+			SkillManager.learn(SKILL, email, (collected / 4).ceil());
 			return true;
 		}
 	}

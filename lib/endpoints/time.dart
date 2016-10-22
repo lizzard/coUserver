@@ -11,8 +11,8 @@ String utcTime() {
 }
 
 @app.Route('/getHolidays')
-Future<List<String>> getHolidays(@app.QueryParam('month') int month,
-                                 @app.QueryParam('day') int day) async {
+List<String> getHolidays(@app.QueryParam('month') int month,
+                         @app.QueryParam('day') int day) {
 	List<String> holidays = [];
 
 	String monthName = monthNames[month];
@@ -211,7 +211,7 @@ class Clock {
 		for(int i = 0; i < (daysinMonths); i++) {
 			cd += daysPerMonth[i];
 			if(cd > id) {
-				int m = i + 1;
+				int m = i;
 				int d = id + 1 - (cd - daysPerMonth[i]);
 				return [m, d];
 			}
